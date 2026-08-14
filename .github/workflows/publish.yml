@@ -1,0 +1,51 @@
+name: publish
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      package:
+        description: '要发布的插件目录（相对仓库根）'
+        required: true
+        default: 'packages/claude-auto-memory'
+        type: string
+
+permissions:
+  contents: read
+  # npm Trusted Publishing (OIDC)：发布时无需任何 npm token
+  id-token: write
+
+env:
+  PACKAGE_DIR: ${{ github.event_name == 'workflow_dispatch' && inputs.package || 'packages/claude-auto-memory' }}
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org/
+
+      # 打 tag 发布时，校验 tag 与 package.json 版本一致，防止发错版本
+      - name: Verify tag matches package version
+        if: startsWith(github.ref, 'refs/tags/v')
+        working-directory: ${{ env.PACKAGE_DIR }}
+        run: |
+          pkg_version=$(node -p "require('./package.json').version")
+          tag_version=${GITHUB_REF_NAME#v}
+          if [ "$pkg_version" != "$tag_version" ]; then
+            echo "::error::tag v${tag_version} != package.json version ${pkg_version}"
+            exit 1
+          fi
+          echo "publishing ${pkg_version}"
+
+      # OIDC：npm CLI 会自动用 GitHub 身份令牌换取一次性发布凭证，
+      # 不需要 NODE_AUTH_TOKEN；--provenance 附带构建来源证明
+      - name: Publish to npm
+        working-directory: ${{ env.PACKAGE_DIR }}
+        run: npm publish --provenance
