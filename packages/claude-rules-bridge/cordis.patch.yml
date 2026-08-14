@@ -1,0 +1,6 @@
+# Bundle patch for @cnzgray/dsh-claude-rules-bridge: mounts the plugin's own loader entry.
+# Applied as a profile layer when this package is installed via
+# `dsh plugin --profile <name> add @cnzgray/dsh-claude-rules-bridge`.
+- insert:
+    - id: claude-rules-bridge
+      name: '@cnzgray/dsh-claude-rules-bridge'

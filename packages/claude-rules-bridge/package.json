@@ -1,0 +1,42 @@
+{
+  "name": "@cnzgray/dsh-claude-rules-bridge",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "index.js",
+  "description": "Bridge Claude Code's .claude/rules/*.md (and *.mdc) path-scoped rules plus the cwd→home CLAUDE.md hierarchy into DeepSeek Harness: always-apply rules at session start, path-scoped rules injected on read/edit/write, plus a /claude-rules command and claude_rules tool.",
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "cordis",
+    "claude-code",
+    "rules",
+    "claude-md"
+  ],
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cnzgray/dsh-plugins.git",
+    "directory": "packages/claude-rules-bridge"
+  },
+  "homepage": "https://github.com/cnzgray/dsh-plugins/tree/main/packages/claude-rules-bridge#readme",
+  "bugs": {
+    "url": "https://github.com/cnzgray/dsh-plugins/issues"
+  },
+  "files": [
+    "index.js",
+    "cordis.patch.yml",
+    "README.md",
+    "README.zh-CN.md"
+  ],
+  "dependencies": {
+    "picomatch": "^4.0.2"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

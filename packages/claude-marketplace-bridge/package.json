@@ -1,0 +1,43 @@
+{
+  "name": "@cnzgray/dsh-claude-marketplace-bridge",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "index.js",
+  "description": "Bridge Claude Code's installed plugin marketplace skills and commands (~/.claude/plugins/marketplaces) into DeepSeek Harness, honoring installed_plugins.json / settings.json enablement.",
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "cordis",
+    "claude-code",
+    "plugins",
+    "skills",
+    "commands"
+  ],
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cnzgray/dsh-plugins.git",
+    "directory": "packages/claude-marketplace-bridge"
+  },
+  "homepage": "https://github.com/cnzgray/dsh-plugins/tree/main/packages/claude-marketplace-bridge#readme",
+  "bugs": {
+    "url": "https://github.com/cnzgray/dsh-plugins/issues"
+  },
+  "files": [
+    "index.js",
+    "cordis.patch.yml",
+    "README.md",
+    "README.zh-CN.md"
+  ],
+  "dependencies": {
+    "yaml": "^2.9.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

@@ -9,6 +9,8 @@ A personal collection of [DeepSeek Harness](https://github.com/deepseek-ai/deeps
 | Package | Description | npm |
 |---|---|---|
 | [`packages/claude-auto-memory`](packages/claude-auto-memory) | Bridges Claude Code's `~/.claude/projects/<encoded>/memory/MEMORY.md` into DSH at session start, plus a `/claude-memory` status command | `@cnzgray/dsh-claude-auto-memory` |
+| [`packages/claude-rules-bridge`](packages/claude-rules-bridge) | Bridges Claude Code's `.claude/rules/*.md` (and `*.mdc`) rules into DSH: always-apply rules at session start, path-scoped rules injected dynamically on read/edit/write, plus a `/claude-rules` command and `claude_rules` tool (CLAUDE.md/AGENTS.md are left to the built-in `dsh-agent-instructions`) | `@cnzgray/dsh-claude-rules-bridge` |
+| [`packages/claude-marketplace-bridge`](packages/claude-marketplace-bridge) | Bridges Claude Code's installed plugin marketplaces (`~/.claude/plugins/marketplaces`) into DSH: SKILL.md skills as a native `ctx.skills` provider and command `.md` files as slash commands, honoring `installed_plugins.json` / `settings.json` enablement (port of pi-claude-plugins) | `@cnzgray/dsh-claude-marketplace-bridge` |
 
 ## Installation
 
