@@ -1,0 +1,37 @@
+{
+  "name": "@cnzgray/dsh-claude-auto-memory",
+  "version": "0.1.1",
+  "type": "module",
+  "main": "index.js",
+  "description": "Bridge Claude Code's ~/.claude/projects/<encoded>/memory/MEMORY.md into DeepSeek Harness at session start, plus a /claude-memory status command.",
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "cordis",
+    "claude-code",
+    "memory"
+  ],
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cnzgray/dsh-plugins.git",
+    "directory": "packages/claude-auto-memory"
+  },
+  "homepage": "https://github.com/cnzgray/dsh-plugins/tree/main/packages/claude-auto-memory#readme",
+  "bugs": {
+    "url": "https://github.com/cnzgray/dsh-plugins/issues"
+  },
+  "files": [
+    "index.js",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}
