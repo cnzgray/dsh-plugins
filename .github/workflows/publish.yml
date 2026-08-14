@@ -3,11 +3,14 @@ name: publish
 on:
   push:
     tags:
-      - 'v*'
+      # 每包作用域 tag：@cnzgray/<包名>@<semver>，例如
+      #   @cnzgray/dsh-claude-rules-bridge@0.1.1
+      #   @cnzgray/dsh-claude-auto-memory@0.1.2
+      - '@cnzgray/*@*'
   workflow_dispatch:
     inputs:
       package:
-        description: '要发布的插件目录（相对仓库根）'
+        description: '要发布的插件目录（相对仓库根），不走 tag 校验'
         required: true
         default: 'packages/claude-auto-memory'
         type: string
@@ -16,9 +19,6 @@ permissions:
   contents: read
   # npm Trusted Publishing (OIDC)：发布时无需任何 npm token
   id-token: write
-
-env:
-  PACKAGE_DIR: ${{ github.event_name == 'workflow_dispatch' && inputs.package || 'packages/claude-auto-memory' }}
 
 jobs:
   publish:
@@ -31,21 +31,51 @@ jobs:
           node-version: 22
           registry-url: https://registry.npmjs.org/
 
-      # 打 tag 发布时，校验 tag 与 package.json 版本一致，防止发错版本
-      - name: Verify tag matches package version
-        if: startsWith(github.ref, 'refs/tags/v')
-        working-directory: ${{ env.PACKAGE_DIR }}
+      # 从触发源解析目标包目录：
+      #   - workflow_dispatch → 直接用 inputs.package
+      #   - tag 推送 → 遍历 packages/*/package.json，反查 name@version == tag 的包
+      - name: Resolve package directory
+        id: resolve
         run: |
-          pkg_version=$(node -p "require('./package.json').version")
-          tag_version=${GITHUB_REF_NAME#v}
-          if [ "$pkg_version" != "$tag_version" ]; then
-            echo "::error::tag v${tag_version} != package.json version ${pkg_version}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            DIR="${{ inputs.package }}"
+          else
+            TAG="${{ github.ref_name }}"
+            DIR=""
+            for d in packages/*/; do
+              name=$(node -p "require('./${d}package.json').name")
+              version=$(node -p "require('./${d}package.json').version")
+              if [ "${name}@${version}" = "$TAG" ]; then
+                DIR="${d%/}"
+                break
+              fi
+            done
+            if [ -z "$DIR" ]; then
+              echo "::error::no package matches tag ${TAG} (expected @cnzgray/<name>@<version> matching a packages/*/package.json)"
+              exit 1
+            fi
+          fi
+          if [ ! -f "$DIR/package.json" ]; then
+            echo "::error::package directory not found: ${DIR}"
             exit 1
           fi
-          echo "publishing ${pkg_version}"
+          echo "dir=$DIR" >> "$GITHUB_OUTPUT"
+
+      # tag 推送时，校验 tag 与 package.json 的 name@version 完全一致，防止发错版本
+      - name: Verify tag matches package version
+        if: github.event_name == 'push'
+        working-directory: ${{ steps.resolve.outputs.dir }}
+        run: |
+          pkg_name=$(node -p "require('./package.json').name")
+          pkg_version=$(node -p "require('./package.json').version")
+          if [ "${GITHUB_REF_NAME}" != "${pkg_name}@${pkg_version}" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} != ${pkg_name}@${pkg_version}"
+            exit 1
+          fi
+          echo "publishing ${pkg_name}@${pkg_version}"
 
       # OIDC：npm CLI 会自动用 GitHub 身份令牌换取一次性发布凭证，
       # 不需要 NODE_AUTH_TOKEN；--provenance 附带构建来源证明
       - name: Publish to npm
-        working-directory: ${{ env.PACKAGE_DIR }}
+        working-directory: ${{ steps.resolve.outputs.dir }}
         run: npm publish --provenance
