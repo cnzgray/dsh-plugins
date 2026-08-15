@@ -2,14 +2,22 @@
 //
 // Port of the pi-claude-plugins extension
 // (https://www.npmjs.com/package/pi-claude-plugins, MIT, Ross Z) into DSH's
-// native seams:
+// native seams, improved in two ways:
 //   - skills   -> ctx.skills.registerProvider()  (DSH first-class skill provider)
 //   - commands -> ctx.commands.register() + agent.steer() (markdown prompt-template runner)
+//   - discovery follows ~/.claude/plugins/installed_plugins.json `installPath`
+//     entries (Claude's authoritative installed-plugin layout under
+//     ~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/), instead of
+//     guessing plugin identity from marketplace clone directory names.
+//   - skill names are namespaced as `<plugin>-<skill>` (Claude Code's
+//     "plugin:skill" identity, kebab-encoded because DSH skill names only
+//     allow `[a-z0-9-]`).
 //
-// It reads Claude Code's installed plugin marketplace layout under
-// ~/.claude/plugins/marketplaces and honors the same enablement rules:
-//   - ~/.claude/plugins/installed_plugins.json (user / project scope)
-//   - ~/.claude/settings.json (enabledPlugins)
+// Enablement mirrors Claude Code: installed_plugins.json scope (user /
+// project) plus settings.json enabledPlugins. Only enabled plugins contribute
+// skills; command files are registered for every installed plugin and
+// re-checked per invocation (fail closed) because DSH registration is static
+// while Claude enablement is cwd-scoped.
 //
 // Zero runtime imports from @deepseek-ai/*: only Node builtins plus the `yaml`
 // package (the same frontmatter parser DSH's own filesystem skill provider
@@ -17,17 +25,21 @@
 
 import { access, readFile, readdir } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, join, resolve } from "node:path";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import { randomUUID } from "node:crypto";
 import { parse as parseYaml } from "yaml";
 
 const name = "claude-marketplace-bridge";
 const inject = ["skills", "commands"];
 
-const MARKETPLACES_DIR = join(homedir(), ".claude", "plugins", "marketplaces");
 const INSTALLED_PLUGINS_PATH = join(homedir(), ".claude", "plugins", "installed_plugins.json");
 const CLAUDE_SETTINGS_PATH = join(homedir(), ".claude", "settings.json");
 const IGNORED_DIRECTORY_NAMES = new Set(["node_modules", "build", "dist", "out"]);
+const MAX_SCAN_DEPTH = 8;
+// `skills` plus model-variant roots some marketplaces use (`skills-default`,
+// `skills-opus`, ...) are all treated as skill roots.
+const SKILLS_DIR_RE = /^skills(?:-[a-z0-9]+)*$/;
+const COMMANDS_DIR = "commands";
 
 const SKILL_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 // Imported marketplace skills rank below project/custom/user skill roots
@@ -36,7 +48,7 @@ const SKILL_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const CLAUDE_MARKETPLACE_RANK = 550;
 
 // ---------------------------------------------------------------------------
-// Claude Code marketplace layout helpers (ported from pi-claude-plugins)
+// Filesystem helpers
 // ---------------------------------------------------------------------------
 
 function shouldIgnoreEntry(name, isDirectory) {
@@ -54,26 +66,20 @@ async function readEntries(dir) {
   }
 }
 
-async function readDirectories(dir) {
-  const entries = await readEntries(dir);
-  return entries
-    .filter((entry) => entry.isDirectory() && !entry.isSymbolicLink() && !shouldIgnoreEntry(entry.name, true))
-    .map((entry) => join(dir, entry.name));
-}
-
-async function readMarkdownFiles(dir) {
-  const entries = await readEntries(dir);
-  return entries
-    .filter((entry) => entry.isFile() && !shouldIgnoreEntry(entry.name, false) && entry.name.endsWith(".md"))
-    .map((entry) => join(dir, entry.name));
-}
-
 async function fileExists(filePath) {
   try {
     await access(filePath);
     return true;
   } catch {
     return false;
+  }
+}
+
+async function readJsonSafe(filePath) {
+  try {
+    return JSON.parse(await readFile(filePath, "utf8"));
+  } catch {
+    return undefined;
   }
 }
 
@@ -86,140 +92,215 @@ function isSameOrDescendant(parent, target) {
   return target === parent || target.startsWith(`${parent}/`);
 }
 
+// ---------------------------------------------------------------------------
+// Claude Code enablement: installed_plugins.json + settings.json
+// ---------------------------------------------------------------------------
+
 async function loadPluginEnabledStates() {
-  let raw;
-  try {
-    raw = await readFile(CLAUDE_SETTINGS_PATH, "utf8");
-  } catch (error) {
-    if (error.code === "ENOENT") return {};
-    throw error;
-  }
-  try {
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === "object" ? parsed.enabledPlugins ?? {} : {};
-  } catch {
-    return {};
-  }
+  const parsed = await readJsonSafe(CLAUDE_SETTINGS_PATH);
+  return parsed && typeof parsed === "object" ? parsed.enabledPlugins ?? {} : {};
 }
 
 /**
- * Resolve the set of enabled plugin keys (`<name>@<marketplace>`) for a cwd,
- * mirroring Claude Code's rules:
- *   - a plugin explicitly disabled in settings.json is skipped;
- *   - user-scoped installs are always enabled;
- *   - project-scoped installs only when cwd is inside their projectPath.
+ * Every installed plugin entry from installed_plugins.json, before scope /
+ * disable filtering.
+ * @returns {Promise<Array<{pluginKey: string, pluginName: string, marketplace: string, installPath: string | undefined, scope: string | undefined, projectPath: string | undefined}>>}
  */
-async function loadEnabledPluginKeys(cwd) {
-  let raw;
-  try {
-    raw = await readFile(INSTALLED_PLUGINS_PATH, "utf8");
-  } catch (error) {
-    if (error.code === "ENOENT") return new Set();
-    throw error;
-  }
-  let parsed;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return new Set();
-  }
+async function installedPluginEntries() {
+  const parsed = await readJsonSafe(INSTALLED_PLUGINS_PATH);
   const plugins = parsed && typeof parsed === "object" && parsed.plugins ? parsed.plugins : {};
-  const pluginEnabledStates = await loadPluginEnabledStates();
-  const normalizedCwd = normalizePath(cwd);
-  const enabled = new Set();
-
-  for (const [pluginKey, entries] of Object.entries(plugins)) {
-    if (pluginEnabledStates[pluginKey] === false) continue;
-    if (!Array.isArray(entries)) continue;
-    const isEnabledForCwd = entries.some((entry) => {
-      if (!entry || typeof entry !== "object") return false;
-      if (entry.scope === "user") return true;
-      if (entry.scope === "project" && typeof entry.projectPath === "string") {
-        return isSameOrDescendant(normalizePath(entry.projectPath), normalizedCwd);
-      }
-      return true;
-    });
-    if (isEnabledForCwd) enabled.add(pluginKey);
+  const entries = [];
+  for (const [pluginKey, rows] of Object.entries(plugins)) {
+    if (!Array.isArray(rows)) continue;
+    const at = pluginKey.lastIndexOf("@");
+    const pluginName = at > 0 ? pluginKey.slice(0, at) : pluginKey;
+    const marketplace = at > 0 ? pluginKey.slice(at + 1) : pluginKey;
+    for (const row of rows) {
+      if (!row || typeof row !== "object") continue;
+      entries.push({
+        pluginKey,
+        pluginName,
+        marketplace,
+        installPath: typeof row.installPath === "string" ? row.installPath : undefined,
+        scope: typeof row.scope === "string" ? row.scope : undefined,
+        projectPath: typeof row.projectPath === "string" ? row.projectPath : undefined
+      });
+    }
   }
-  return enabled;
+  return entries;
+}
+
+/** Plugin entries enabled for a cwd: not disabled, and scope matches (user always, project only inside projectPath). */
+async function enabledPluginEntries(cwd) {
+  const all = await installedPluginEntries();
+  const disabled = await loadPluginEnabledStates();
+  const normalizedCwd = normalizePath(cwd);
+  return all.filter((entry) => {
+    if (disabled[entry.pluginKey] === false) return false;
+    if (entry.scope === "user") return true;
+    if (entry.scope === "project" && entry.projectPath !== undefined) {
+      return isSameOrDescendant(normalizePath(entry.projectPath), normalizedCwd);
+    }
+    return true;
+  });
+}
+
+/** Quick enabled-key membership set for the command runtime check. */
+async function enabledPluginKeySet(cwd) {
+  return new Set((await enabledPluginEntries(cwd)).map((entry) => entry.pluginKey));
+}
+
+// ---------------------------------------------------------------------------
+// Plugin install scanning: recursive, bounded, manifest-aware attribution
+// ---------------------------------------------------------------------------
+
+/** One discovered filesystem resource inside a plugin install. */
+function collectFind(kind, path, directory) {
+  return { kind, path, directory };
 }
 
 /**
- * Scan every marketplace for enabled skills and command markdown files.
- * @returns {Promise<{skills: Array<{path: string, directory: string, pluginKey: string, marketplace: string}>, commands: Array<{path: string, pluginKey: string, marketplace: string}>}>}
+ * Recursively scan one installed plugin directory for skill bundles
+ * (`<skills-dir>/<skill>/SKILL.md`) and command markdown (`commands/*.md`).
+ * `skills-*` variant roots are included; hidden and build directories are
+ * pruned; symlinked directories are not followed.
  */
-async function findResources(cwd) {
-  const enabledPluginKeys = await loadEnabledPluginKeys(cwd);
-  const marketplaceDirs = await readDirectories(MARKETPLACES_DIR);
-  const skills = [];
-  const commands = [];
-
-  for (const marketplaceDir of marketplaceDirs) {
-    const marketplaceName = basename(marketplaceDir);
-    const marketplacePluginKey = `${marketplaceName}@${marketplaceName}`;
-    const isMarketplacePluginEnabled = enabledPluginKeys.has(marketplacePluginKey);
-
-    // Top-level marketplace skills: <m>/skills/<skill>/SKILL.md
-    const topLevelSkillDirs = await readDirectories(join(marketplaceDir, "skills"));
-    for (const skillDir of topLevelSkillDirs) {
-      const pluginKey = `${basename(skillDir)}@${marketplaceName}`;
-      if (!isMarketplacePluginEnabled && !enabledPluginKeys.has(pluginKey)) continue;
-      const skillPath = join(skillDir, "SKILL.md");
-      if (await fileExists(skillPath)) {
-        skills.push({ path: skillPath, directory: skillDir, pluginKey, marketplace: marketplaceName });
-      }
-    }
-
-    // Marketplace-level commands: <m>/commands/*.md
-    if (isMarketplacePluginEnabled) {
-      for (const path of await readMarkdownFiles(join(marketplaceDir, "commands"))) {
-        commands.push({ path, pluginKey: marketplacePluginKey, marketplace: marketplaceName });
-      }
-    }
-
-    // Nested plugins: <m>/plugins/<p>/{skills,commands}
-    const pluginDirs = await readDirectories(join(marketplaceDir, "plugins"));
-    for (const pluginDir of pluginDirs) {
-      const pluginKey = `${basename(pluginDir)}@${marketplaceName}`;
-      if (!enabledPluginKeys.has(pluginKey)) continue;
-      const pluginSkillDirs = await readDirectories(join(pluginDir, "skills"));
-      for (const skillDir of pluginSkillDirs) {
-        const skillPath = join(skillDir, "SKILL.md");
-        if (await fileExists(skillPath)) {
-          skills.push({ path: skillPath, directory: skillDir, pluginKey, marketplace: marketplaceName });
+async function scanPluginInstall(installPath) {
+  const finds = [];
+  async function walk(dir, depth) {
+    if (depth > MAX_SCAN_DEPTH) return;
+    const entries = await readEntries(dir);
+    for (const entry of entries) {
+      if (shouldIgnoreEntry(entry.name, entry.isDirectory())) continue;
+      if (entry.isDirectory() && !entry.isSymbolicLink()) {
+        const full = join(dir, entry.name);
+        if (SKILLS_DIR_RE.test(entry.name)) {
+          const skillDirs = await readDirectoriesNoSymlink(full);
+          for (const skillDir of skillDirs) {
+            const skillPath = join(skillDir, "SKILL.md");
+            if (await fileExists(skillPath)) finds.push(collectFind("skill", skillPath, skillDir));
+          }
+        } else if (entry.name === COMMANDS_DIR) {
+          for (const md of await readMarkdownFiles(full)) {
+            finds.push(collectFind("command", md, full));
+          }
+        } else {
+          await walk(full, depth + 1);
         }
       }
-      for (const path of await readMarkdownFiles(join(pluginDir, "commands"))) {
-        commands.push({ path, pluginKey, marketplace: marketplaceName });
+    }
+  }
+  await walk(installPath, 0);
+  return finds;
+}
+
+async function readDirectoriesNoSymlink(dir) {
+  const entries = await readEntries(dir);
+  const out = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory() || entry.isSymbolicLink() || shouldIgnoreEntry(entry.name, true)) continue;
+    out.push(join(dir, entry.name));
+  }
+  return out;
+}
+
+async function readMarkdownFiles(dir) {
+  const entries = await readEntries(dir);
+  const out = [];
+  for (const entry of entries) {
+    if (entry.isFile() && !entry.isSymbolicLink() && !shouldIgnoreEntry(entry.name, false) && entry.name.endsWith(".md")) {
+      out.push(join(dir, entry.name));
+    }
+  }
+  return out;
+}
+
+/** Cache of `.claude-plugin/plugin.json` name by plugin directory (per process). */
+const manifestNameCache = new Map();
+
+async function readManifestName(pluginDir) {
+  let cached = manifestNameCache.get(pluginDir);
+  if (cached === undefined) {
+    const parsed = await readJsonSafe(join(pluginDir, ".claude-plugin", "plugin.json"));
+    cached = parsed && typeof parsed.name === "string" && parsed.name.length > 0 ? parsed.name : undefined;
+    manifestNameCache.set(pluginDir, cached);
+  }
+  return cached;
+}
+
+/**
+ * Attribute a find inside a plugin install to the nearest ancestor directory
+ * whose `.claude-plugin/plugin.json` name matches an installed plugin key
+ * (`<name>@<marketplace>`); fall back to the scanned plugin's own key. This
+ * handles "bundle" installs (a plugin install containing several sub-plugins)
+ * without mislabeling them.
+ */
+async function resolveOwner(installRoot, findDir, marketplace, installedKeys) {
+  let current = resolve(findDir);
+  const root = resolve(installRoot);
+  while (current !== root && (current === root || current.startsWith(root + sep))) {
+    const name = await readManifestName(current);
+    if (name !== undefined && installedKeys.has(`${name}@${marketplace}`)) {
+      return { pluginKey: `${name}@${marketplace}`, pluginName: name };
+    }
+    const parent = dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+  return undefined;
+}
+
+/** Discover skills + commands from every enabled plugin install, attributed per plugin. */
+async function discoverResources(cwd) {
+  const enabled = await enabledPluginEntries(cwd);
+  const installedKeys = new Set((await installedPluginEntries()).map((e) => e.pluginKey));
+  const skills = [];
+  const commands = [];
+  const seenSkills = new Set();
+  const seenCommands = new Set();
+  for (const entry of enabled) {
+    if (entry.installPath === undefined) continue;
+    const finds = await scanPluginInstall(entry.installPath);
+    for (const find of finds) {
+      const owner = (await resolveOwner(entry.installPath, find.directory, entry.marketplace, installedKeys)) ?? {
+        pluginKey: entry.pluginKey,
+        pluginName: entry.pluginName
+      };
+      if (find.kind === "skill") {
+        const dedupe = `${owner.pluginKey}\u0000${find.path}`;
+        if (seenSkills.has(dedupe)) continue;
+        seenSkills.add(dedupe);
+        skills.push({ ...find, ...owner, marketplace: entry.marketplace });
+      } else {
+        const dedupe = `${owner.pluginKey}\u0000${find.path}`;
+        if (seenCommands.has(dedupe)) continue;
+        seenCommands.add(dedupe);
+        commands.push({ ...find, ...owner, marketplace: entry.marketplace });
       }
     }
   }
-
   return { skills, commands };
 }
 
-/**
- * Scan every marketplace for command markdown files, regardless of enablement.
- * Commands are registered globally (DSH registration is static, while Claude
- * enablement is cwd-scoped), so the handler re-checks enablement against the
- * current workspace on every invocation — fail closed when disabled.
- * @returns {Promise<Array<{path: string, pluginKey: string, marketplace: string}>>}
- */
-async function findCommands() {
-  const marketplaceDirs = await readDirectories(MARKETPLACES_DIR);
+/** Discover command files from every installed plugin (for static registration; enablement is re-checked at runtime). */
+async function discoverAllCommands() {
+  const all = await installedPluginEntries();
+  const installedKeys = new Set(all.map((e) => e.pluginKey));
   const commands = [];
-  for (const marketplaceDir of marketplaceDirs) {
-    const marketplaceName = basename(marketplaceDir);
-    const marketplacePluginKey = `${marketplaceName}@${marketplaceName}`;
-    for (const path of await readMarkdownFiles(join(marketplaceDir, "commands"))) {
-      commands.push({ path, pluginKey: marketplacePluginKey, marketplace: marketplaceName });
-    }
-    const pluginDirs = await readDirectories(join(marketplaceDir, "plugins"));
-    for (const pluginDir of pluginDirs) {
-      const pluginKey = `${basename(pluginDir)}@${marketplaceName}`;
-      for (const path of await readMarkdownFiles(join(pluginDir, "commands"))) {
-        commands.push({ path, pluginKey, marketplace: marketplaceName });
-      }
+  const seen = new Set();
+  for (const entry of all) {
+    if (entry.installPath === undefined) continue;
+    const finds = await scanPluginInstall(entry.installPath);
+    for (const find of finds) {
+      if (find.kind !== "command") continue;
+      const owner = (await resolveOwner(entry.installPath, find.directory, entry.marketplace, installedKeys)) ?? {
+        pluginKey: entry.pluginKey,
+        pluginName: entry.pluginName
+      };
+      const dedupe = `${owner.pluginKey}\u0000${find.path}`;
+      if (seen.has(dedupe)) continue;
+      seen.add(dedupe);
+      commands.push({ ...find, ...owner, marketplace: entry.marketplace });
     }
   }
   return commands;
@@ -345,8 +426,13 @@ function parseSkillFrontmatter(raw, log, subject) {
 
 const skillProviderName = "claude-marketplace-bridge";
 
-function skillSource(resource) {
-  return `claude-marketplace-bridge:${resource.marketplace}:${resource.pluginKey}`;
+/** The DSH skill name: Claude's `plugin:skill` identity, kebab-encoded as `plugin-skill`. */
+function qualifiedSkillName(pluginName, skillName) {
+  return `${pluginName}-${skillName}`;
+}
+
+function skillSource(owner) {
+  return `claude-marketplace-bridge:${owner.pluginKey}`;
 }
 
 async function readSkillFile(resource, log) {
@@ -369,17 +455,25 @@ async function readSkillFile(resource, log) {
   };
 }
 
-function createSkillProvider(log) {
+function createSkillProvider(log, matcher) {
   return {
     name: skillProviderName,
     async list(options) {
-      const resources = await findResources(options.cwd ?? process.cwd());
+      const resources = await discoverResources(options.cwd ?? process.cwd());
       const candidates = [];
-      for (const resource of resources.skills) {
+      // Deterministic: process by path so same-name duplicates (e.g. model-variant
+      // `skills-default`/`skills-opus`/`skills-kimi` roots) keep the first file.
+      const orderedSkills = [...resources.skills].sort((a, b) => a.path.localeCompare(b.path));
+      const seenNames = new Set();
+      for (const resource of orderedSkills) {
         const parsed = await readSkillFile(resource, log);
         if (!parsed) continue;
+        const candidateName = qualifiedSkillName(resource.pluginName, parsed.name);
+        if (seenNames.has(candidateName)) continue;
+        seenNames.add(candidateName);
+        if (matcher.blocks(candidateName, resource.pluginKey, resource.marketplace)) continue;
         candidates.push({
-          name: parsed.name,
+          name: candidateName,
           description: parsed.description,
           ...(parsed.whenToUse !== undefined ? { whenToUse: parsed.whenToUse } : {}),
           invocation: parsed.invocation,
@@ -398,7 +492,7 @@ function createSkillProvider(log) {
       const parsed = await readSkillFile(resource, log);
       if (!parsed) return undefined;
       return {
-        name: parsed.name,
+        name: qualifiedSkillName(resource.pluginName, parsed.name),
         description: parsed.description,
         ...(parsed.whenToUse !== undefined ? { whenToUse: parsed.whenToUse } : {}),
         invocation: parsed.invocation,
@@ -410,6 +504,86 @@ function createSkillProvider(log) {
       };
     }
   };
+}
+
+// ---------------------------------------------------------------------------
+// Blocklist matching (blockedCommands / blockedSkills)
+// ---------------------------------------------------------------------------
+
+/**
+ * Minimal glob: only `*` (any run of characters, including none). Used for
+ * command/skill-name patterns like `git-*`; deliberately dependency-free.
+ */
+function globMatch(pattern, value) {
+  const parts = pattern.split("*");
+  if (parts.length === 1) return pattern === value;
+  let index = 0;
+  for (const part of parts) {
+    if (part === "") continue;
+    const found = value.indexOf(part, index);
+    if (found === -1) return false;
+    index = found + part.length;
+  }
+  return true;
+}
+
+/**
+ * Build a matcher from a blocklist of entries with unambiguous shapes:
+ *   - `@<marketplace>`        -> block every resource from that marketplace
+ *   - `<name>@<marketplace>`  -> block every resource of that plugin key
+ *   - `<name>` (or `/name`)   -> block by name (command name, or the
+ *     qualified `<plugin>-<skill>` name for skills); `*` wildcards allowed
+ * Each rule records whether it ever matched, so callers can warn about
+ * entries that block nothing (typos, stale rules).
+ */
+function createBlockMatcher(entries) {
+  const rules = [];
+  for (const raw of entries) {
+    let entry = typeof raw === "string" ? raw.trim() : "";
+    if (!entry) continue;
+    if (entry.startsWith("@")) {
+      rules.push({ kind: "marketplace", value: entry.slice(1), matched: false });
+      continue;
+    }
+    if (entry.includes("@")) {
+      rules.push({ kind: "pluginKey", value: entry, matched: false });
+      continue;
+    }
+    entry = entry.replace(/^\//, "");
+    if (entry.includes("*")) {
+      rules.push({ kind: "glob", value: entry.toLowerCase(), matched: false });
+      continue;
+    }
+    rules.push({ kind: "name", value: entry.toLowerCase(), matched: false });
+  }
+  const blocks = (name, pluginKey, marketplace) => {
+    const normalized = (name ?? "").toLowerCase();
+    let blocked = false;
+    for (const rule of rules) {
+      let hit = false;
+      switch (rule.kind) {
+        case "name":
+          hit = normalized === rule.value;
+          break;
+        case "pluginKey":
+          hit = pluginKey === rule.value;
+          break;
+        case "marketplace":
+          hit = marketplace === rule.value;
+          break;
+        case "glob":
+          hit = globMatch(rule.value, normalized);
+          break;
+      }
+      if (hit) {
+        rule.matched = true;
+        blocked = true;
+      }
+    }
+    return blocked;
+  };
+  const unmatched = () => rules.filter((rule) => !rule.matched).map((rule) => rule.value);
+  return { blocks, unmatched };
 }
 
 // ---------------------------------------------------------------------------
@@ -460,15 +634,20 @@ async function loadCommandMeta(path, log) {
   return { description: optionalString(parsed.data, "description") };
 }
 
-async function registerCommands(ctx, log, commands) {
+async function registerCommands(ctx, log, commands, matcher) {
   const seen = new Set();
   let registered = 0;
   let skipped = 0;
+  const blocked = [];
 
   for (const command of commands) {
     const commandName = sanitizeCommandName(command.path);
     if (!commandName) {
       skipped += 1;
+      continue;
+    }
+    if (matcher.blocks(commandName, command.pluginKey, command.marketplace)) {
+      blocked.push(commandName);
       continue;
     }
     if (seen.has(commandName)) {
@@ -480,10 +659,10 @@ async function registerCommands(ctx, log, commands) {
     try {
       ctx.commands.register({
         name: commandName,
-        description: description ?? `Claude Code command from ${command.marketplace}`,
+        description: description ?? `Claude Code command from ${command.pluginKey}`,
         handler: async ({ agent, rawInput }) => {
           const cwd = agent.session.header.cwd ?? process.cwd();
-          const enabledKeys = await loadEnabledPluginKeys(cwd);
+          const enabledKeys = await enabledPluginKeySet(cwd);
           if (!enabledKeys.has(command.pluginKey)) {
             return {
               kind: "error",
@@ -514,27 +693,52 @@ async function registerCommands(ctx, log, commands) {
     }
   }
 
+  if (blocked.length > 0) {
+    log.info(`[claude-marketplace-bridge] blocked ${blocked.length} command(s): ${[...new Set(blocked)].join(", ")}`);
+  }
   log.info(`[claude-marketplace-bridge] registered ${registered} command(s), skipped ${skipped}`);
-  return registered;
+  return { registered, blocked };
 }
 
 // ---------------------------------------------------------------------------
 // Plugin apply
 // ---------------------------------------------------------------------------
 
-function apply(ctx) {
+function apply(ctx, config = {}) {
   const log = ctx.logger(name);
+  const blockedCommands = Array.isArray(config.blockedCommands) ? config.blockedCommands : [];
+  const blockedSkills = Array.isArray(config.blockedSkills) ? config.blockedSkills : [];
+  // Separate matchers: a rule in blockedCommands only ever blocks commands, a
+  // rule in blockedSkills only ever blocks skills (add the entry to both lists
+  // to block both surfaces).
+  const commandMatcher = createBlockMatcher(blockedCommands);
+  const skillMatcher = createBlockMatcher(blockedSkills);
+  // Filled once async command registration settles; status shows what is known so far.
+  const blockedCommandNames = [];
 
   // Skills: register a first-class provider on ctx.skills.
-  ctx.skills.registerProvider(() => createSkillProvider(log));
+  ctx.skills.registerProvider(() => createSkillProvider(log, skillMatcher));
 
-  // Commands: register every command markdown file found on disk; enablement
-  // is re-checked per invocation against the current workspace (see handler).
+  // Commands: register every command file from every installed plugin;
+  // enablement is re-checked per invocation against the current workspace.
   void (async () => {
     try {
-      const commands = await findCommands();
-      log.info(`[claude-marketplace-bridge] found ${commands.length} command file(s) under ${MARKETPLACES_DIR} (enablement checked per invocation)`);
-      await registerCommands(ctx, log, commands);
+      const commands = await discoverAllCommands();
+      log.info(`[claude-marketplace-bridge] found ${commands.length} command file(s) across installed plugins (enablement checked per invocation)`);
+      const outcome = await registerCommands(ctx, log, commands, commandMatcher);
+      blockedCommandNames.push(...outcome.blocked);
+      // Second pass over skills so skill-only block rules are marked before the
+      // unmatched warning (the skill catalog itself loads lazily per session).
+      const resources = await discoverResources(process.cwd());
+      for (const resource of resources.skills) {
+        const parsed = await readSkillFile(resource, log);
+        if (!parsed) continue;
+        skillMatcher.blocks(qualifiedSkillName(resource.pluginName, parsed.name), resource.pluginKey, resource.marketplace);
+      }
+      const unmatched = [...commandMatcher.unmatched(), ...skillMatcher.unmatched()];
+      if (unmatched.length > 0) {
+        log.warn(`[claude-marketplace-bridge] blocklist entries matched nothing (check spelling or stale rules): ${unmatched.join(", ")}`);
+      }
     } catch (error) {
       log.error(`[claude-marketplace-bridge] failed to initialize command bridge: ${error.message}`);
     }
@@ -547,9 +751,18 @@ function apply(ctx) {
     handler: async ({ agent }) => {
       const cwd = agent.session.header.cwd ?? process.cwd();
       try {
-        const resources = await findResources(cwd);
+        const resources = await discoverResources(cwd);
+        let blockedSkillsCount = 0;
+        for (const resource of resources.skills) {
+          const parsed = await readSkillFile(resource, log);
+          if (!parsed) continue;
+          if (skillMatcher.blocks(qualifiedSkillName(resource.pluginName, parsed.name), resource.pluginKey, resource.marketplace)) {
+            blockedSkillsCount += 1;
+          }
+        }
         const lines = [
-          `[claude-marketplace-bridge] ${resources.skills.length} skill(s), ${resources.commands.length} command(s) from ${MARKETPLACES_DIR}`,
+          `[claude-marketplace-bridge] ${resources.skills.length} skill(s), ${resources.commands.length} command(s) from enabled Claude plugins`,
+          `  blocked: ${blockedCommandNames.length} command(s), ${blockedSkillsCount} skill(s)`,
         ];
         const byPlugin = new Map();
         for (const r of resources.skills) {
@@ -572,6 +785,9 @@ function apply(ctx) {
     }
   });
 
+  if (blockedCommands.length > 0 || blockedSkills.length > 0) {
+    log.info(`[claude-marketplace-bridge] blocklist: ${blockedCommands.length} command rule(s), ${blockedSkills.length} skill rule(s)`);
+  }
   log.info(`[claude-marketplace-bridge] mounted (skills provider "${skillProviderName}", rank ${CLAUDE_MARKETPLACE_RANK})`);
 }
 
