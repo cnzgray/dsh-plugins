@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "type": "module",
   "main": "index.js",
-  "description": "Bridge Claude Code's installed plugin marketplace skills and commands (~/.claude/plugins/marketplaces) into DeepSeek Harness, honoring installed_plugins.json / settings.json enablement.",
+  "description": "Bridge Claude Code's installed plugin marketplace skills and commands (via installed_plugins.json installPath under ~/.claude/plugins) into DeepSeek Harness, honoring scope / settings.json enablement.",
   "keywords": [
     "deepseek-harness",
     "dsh",
