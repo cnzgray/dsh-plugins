@@ -20,7 +20,15 @@ This repository publishes [`index.json`](index.json), a [DSH plugin market index
 https://raw.githubusercontent.com/cnzgray/dsh-plugins/main/index.json
 ```
 
-Open **Plugins**, enable **Custom plugin indexes** under Experimental plugins, open the **Discover** tab, choose **Add index source**, and paste that URL.
+For networks where GitHub's raw host is slow or unreachable, use the jsDelivr-compatible mirror (byte-identical `index.json`):
+
+```text
+https://cdn.jsdmirror.com/gh/cnzgray/dsh-plugins@main/index.json
+```
+
+Open **Plugins**, enable **Custom plugin indexes** under Experimental plugins, open the **Discover** tab, choose **Add index source**, and paste either URL.
+
+The mirror caches branch content, so it can trail the raw URL by up to twelve hours; the index workflow purges the cache after every update.
 
 The index is generated from npm, not edited by hand:
 

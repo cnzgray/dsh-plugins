@@ -20,7 +20,15 @@
 https://raw.githubusercontent.com/cnzgray/dsh-plugins/main/index.json
 ```
 
-在 DSH 中打开 **插件**，在实验性插件里启用 **自定义插件索引**，进入 **发现** 标签，选择 **添加索引源**，粘贴上面的 URL。
+中国大陆网络访问 GitHub raw 不稳定时，可使用 jsDelivr 兼容镜像（内容与上面逐字节一致）：
+
+```text
+https://cdn.jsdmirror.com/gh/cnzgray/dsh-plugins@main/index.json
+```
+
+在 DSH 中打开 **插件**，在实验性插件里启用 **自定义插件索引**，进入 **发现** 标签，选择 **添加索引源**，粘贴以上任一 URL。
+
+镜像按分支缓存，最多可能比 raw 滞后 12 小时；索引工作流在每次更新后会主动刷新缓存。
 
 索引由 npm 自动生成，不手工编辑：
 

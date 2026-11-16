@@ -51,3 +51,9 @@ jobs:
           fi
           git commit -m "chore: update plugin index"
           git push origin "HEAD:${{ github.event.repository.default_branch }}"
+      - name: Purge mirror cache
+        continue-on-error: true
+        run: |
+          for host in purge.jsdelivr.net purge.jsdmirror.com; do
+            curl -fsS --retry 3 --max-time 20 "https://$host/gh/cnzgray/dsh-plugins@main/index.json" > /dev/null || true
+          done
