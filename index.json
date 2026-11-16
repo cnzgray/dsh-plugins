@@ -80,6 +80,47 @@
       ]
     },
     {
+      "name": "@cnzgray/dsh-claude-rules-bridge",
+      "title": {
+        "en": "Claude Rules Bridge",
+        "zh": "Claude 规则桥接"
+      },
+      "description": {
+        "en": "Bridges Claude Code's .claude/rules/*.md rules into DSH, with a /claude-rules command and tool.",
+        "zh": "把 Claude Code 的 .claude/rules/*.md 规则桥接进 DSH，附 /claude-rules 命令与工具。"
+      },
+      "homepage": "https://github.com/cnzgray/dsh-claude-rules-bridge#readme",
+      "repository": {
+        "url": "https://github.com/cnzgray/dsh-claude-rules-bridge"
+      },
+      "metadata": {
+        "category": "bridge",
+        "keywords": [
+          "deepseek-harness",
+          "dsh",
+          "cordis",
+          "claude-code",
+          "rules",
+          "claude-md"
+        ],
+        "labels": [
+          "claude-code"
+        ]
+      },
+      "versions": [
+        {
+          "version": "0.1.1",
+          "publishTimestamp": 1794823223,
+          "source": {
+            "type": "npm"
+          },
+          "engines": {
+            "dsh": ">=0.2.0-rc.2"
+          }
+        }
+      ]
+    },
+    {
       "name": "@cnzgray/dsh-claude-marketplace-bridge",
       "title": {
         "en": "Claude Marketplace Bridge",
