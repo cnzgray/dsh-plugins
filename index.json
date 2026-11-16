@@ -40,6 +40,88 @@
   },
   "plugins": [
     {
+      "name": "@cnzgray/dsh-claude-auto-memory",
+      "title": {
+        "en": "Claude Auto Memory",
+        "zh": "Claude 自动记忆"
+      },
+      "description": {
+        "en": "Bridges Claude Code's MEMORY.md into DSH at session start.",
+        "zh": "在 DSH 会话开始时桥接 Claude Code 的 MEMORY.md。"
+      },
+      "homepage": "https://github.com/cnzgray/dsh-claude-auto-memory#readme",
+      "repository": {
+        "url": "https://github.com/cnzgray/dsh-claude-auto-memory"
+      },
+      "metadata": {
+        "category": "bridge",
+        "keywords": [
+          "deepseek-harness",
+          "dsh",
+          "cordis",
+          "claude-code",
+          "memory"
+        ],
+        "labels": [
+          "claude-code"
+        ]
+      },
+      "versions": [
+        {
+          "version": "0.1.2",
+          "publishTimestamp": 1794822426,
+          "source": {
+            "type": "npm"
+          },
+          "engines": {
+            "dsh": ">=0.2.0-rc.2"
+          }
+        }
+      ]
+    },
+    {
+      "name": "@cnzgray/dsh-claude-marketplace-bridge",
+      "title": {
+        "en": "Claude Marketplace Bridge",
+        "zh": "Claude 市场桥接"
+      },
+      "description": {
+        "en": "Bridges installed Claude Code plugin marketplaces into DSH skills and commands.",
+        "zh": "把 Claude Code 已安装的插件市场桥接为 DSH 技能与命令。"
+      },
+      "homepage": "https://github.com/cnzgray/dsh-claude-marketplace-bridge#readme",
+      "repository": {
+        "url": "https://github.com/cnzgray/dsh-claude-marketplace-bridge"
+      },
+      "metadata": {
+        "category": "bridge",
+        "keywords": [
+          "deepseek-harness",
+          "dsh",
+          "cordis",
+          "claude-code",
+          "plugins",
+          "skills",
+          "commands"
+        ],
+        "labels": [
+          "claude-code"
+        ]
+      },
+      "versions": [
+        {
+          "version": "0.1.1",
+          "publishTimestamp": 1794822947,
+          "source": {
+            "type": "npm"
+          },
+          "engines": {
+            "dsh": ">=0.2.0-rc.2"
+          }
+        }
+      ]
+    },
+    {
       "name": "@cnzgray/dsh-mattpocock-workflow",
       "title": {
         "en": "MattWorkflow",
