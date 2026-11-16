@@ -1,0 +1,53 @@
+name: Update plugin index
+
+on:
+  schedule:
+    # Every six hours; npm publishes are picked up without any manual step.
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+  repository_dispatch:
+    types: [plugin-published]
+  push:
+    paths:
+      - plugins.json
+      - scripts/**
+      - package.json
+      - package-lock.json
+      - .github/workflows/index.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: plugin-index
+  cancel-in-progress: false
+
+jobs:
+  update:
+    if: github.event_name != 'push' || github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - name: Build index from npm
+        run: npm run build:index
+      - name: Validate index
+        run: npm run check
+      - name: Commit index changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.json
+          if git diff --cached --quiet; then
+            echo "index.json is up to date"
+            exit 0
+          fi
+          git commit -m "chore: update plugin index"
+          git push origin "HEAD:${{ github.event.repository.default_branch }}"

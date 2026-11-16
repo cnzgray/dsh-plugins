@@ -1,0 +1,94 @@
+{
+  "format": 1,
+  "title": {
+    "en": "cnzgray DSH Plugins",
+    "zh": "cnzgray DSH 插件"
+  },
+  "description": {
+    "en": "Personal DeepSeek Harness bundles maintained by cnzgray.",
+    "zh": "cnzgray 维护的 DeepSeek Harness 插件集合。"
+  },
+  "metadata": {
+    "categories": {
+      "bridge": {
+        "title": {
+          "en": "Bridges",
+          "zh": "桥接"
+        }
+      },
+      "workflow": {
+        "title": {
+          "en": "Workflow",
+          "zh": "工作流"
+        }
+      }
+    },
+    "labels": {
+      "claude-code": {
+        "title": {
+          "en": "Claude Code",
+          "zh": "Claude Code"
+        }
+      },
+      "skills": {
+        "title": {
+          "en": "Skills",
+          "zh": "技能"
+        }
+      }
+    }
+  },
+  "plugins": [
+    {
+      "name": "@cnzgray/dsh-mattpocock-workflow",
+      "title": {
+        "en": "MattWorkflow",
+        "zh": "MattWorkflow"
+      },
+      "description": {
+        "en": "MattWorkflow task panel for running the mattpocock/skills workflow in DSH.",
+        "zh": "在 DSH 里运行 mattpocock/skills 工作流的 MattWorkflow 任务面板。"
+      },
+      "homepage": "https://github.com/cnzgray/dsh-mattpocock-workflow#readme",
+      "repository": {
+        "url": "https://github.com/cnzgray/dsh-mattpocock-workflow"
+      },
+      "metadata": {
+        "category": "workflow",
+        "keywords": [
+          "dsh",
+          "dsh-plugin",
+          "deepseek-harness",
+          "mattpocock",
+          "skills",
+          "workflow"
+        ],
+        "labels": [
+          "skills"
+        ]
+      },
+      "versions": [
+        {
+          "version": "0.1.2",
+          "publishTimestamp": 1794819611,
+          "source": {
+            "type": "npm"
+          },
+          "engines": {
+            "dsh": ">=0.2.0-rc.2"
+          }
+        },
+        {
+          "version": "0.1.0",
+          "publishTimestamp": 1794818971,
+          "source": {
+            "type": "npm"
+          },
+          "engines": {
+            "dsh": ">=0.2.0-rc.2"
+          }
+        }
+      ]
+    }
+  ]
+}

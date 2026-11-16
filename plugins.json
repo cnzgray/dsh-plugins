@@ -1,0 +1,102 @@
+{
+  "title": {
+    "en": "cnzgray DSH Plugins",
+    "zh": "cnzgray DSH 插件"
+  },
+  "description": {
+    "en": "Personal DeepSeek Harness bundles maintained by cnzgray.",
+    "zh": "cnzgray 维护的 DeepSeek Harness 插件集合。"
+  },
+  "discovery": {
+    "maintainers": [
+      "cnzgray"
+    ],
+    "include": []
+  },
+  "categories": {
+    "bridge": {
+      "title": {
+        "en": "Bridges",
+        "zh": "桥接"
+      }
+    },
+    "workflow": {
+      "title": {
+        "en": "Workflow",
+        "zh": "工作流"
+      }
+    }
+  },
+  "labels": {
+    "claude-code": {
+      "title": {
+        "en": "Claude Code",
+        "zh": "Claude Code"
+      }
+    },
+    "skills": {
+      "title": {
+        "en": "Skills",
+        "zh": "技能"
+      }
+    }
+  },
+  "packages": {
+    "@cnzgray/dsh-claude-auto-memory": {
+      "title": {
+        "en": "Claude Auto Memory",
+        "zh": "Claude 自动记忆"
+      },
+      "description": {
+        "en": "Bridges Claude Code's MEMORY.md into DSH at session start.",
+        "zh": "在 DSH 会话开始时桥接 Claude Code 的 MEMORY.md。"
+      },
+      "category": "bridge",
+      "labels": [
+        "claude-code"
+      ]
+    },
+    "@cnzgray/dsh-claude-rules-bridge": {
+      "title": {
+        "en": "Claude Rules Bridge",
+        "zh": "Claude 规则桥接"
+      },
+      "description": {
+        "en": "Bridges Claude Code's .claude/rules/*.md rules into DSH, with a /claude-rules command and tool.",
+        "zh": "把 Claude Code 的 .claude/rules/*.md 规则桥接进 DSH，附 /claude-rules 命令与工具。"
+      },
+      "category": "bridge",
+      "labels": [
+        "claude-code"
+      ]
+    },
+    "@cnzgray/dsh-claude-marketplace-bridge": {
+      "title": {
+        "en": "Claude Marketplace Bridge",
+        "zh": "Claude 市场桥接"
+      },
+      "description": {
+        "en": "Bridges installed Claude Code plugin marketplaces into DSH skills and commands.",
+        "zh": "把 Claude Code 已安装的插件市场桥接为 DSH 技能与命令。"
+      },
+      "category": "bridge",
+      "labels": [
+        "claude-code"
+      ]
+    },
+    "@cnzgray/dsh-mattpocock-workflow": {
+      "title": {
+        "en": "MattWorkflow",
+        "zh": "MattWorkflow"
+      },
+      "description": {
+        "en": "MattWorkflow task panel for running the mattpocock/skills workflow in DSH.",
+        "zh": "在 DSH 里运行 mattpocock/skills 工作流的 MattWorkflow 任务面板。"
+      },
+      "category": "workflow",
+      "labels": [
+        "skills"
+      ]
+    }
+  }
+}
